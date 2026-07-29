@@ -107,6 +107,8 @@ let gestureScaleTarget = 1;
 
 const clock = new THREE.Clock();
 const tempColor = new THREE.Color();
+const tempBondPoint = new THREE.Vector3();
+const tempBondColor = new THREE.Color();
 const directorQuaternion = new THREE.Quaternion();
 const gestureQuaternion = new THREE.Quaternion();
 const gestureQuaternionTarget = new THREE.Quaternion();
@@ -214,6 +216,28 @@ function updatePESSurface(force = false) {
     const z = THREE.MathUtils.clamp(p.z / FIELD_SIZE + 0.5, 0.03, 0.97);
     const strength = Math.pow(item.radius / FIELD_SIZE, 2) * (pesSurface.isolation + subtract);
     pesSurface.addBall(x, y, z, strength, subtract, tempColor.set(item.color));
+  }
+
+  // Keep the C-Cl cloud connected exactly while its animated bond is present.
+  const cClBond = dynamicBonds.CCl;
+  const cAtom = atoms.C;
+  const clAtom = atoms.Cl;
+  const bondAmount = THREE.MathUtils.clamp(Math.abs(cClBond?.scale.x || 0), 0, 1);
+  if (cClBond?.visible && cAtom && clAtom && bondAmount > 0.02) {
+    const bridgeRadius = THREE.MathUtils.lerp(0.26, 0.36, Math.sqrt(bondAmount));
+    const distance = cAtom.position.distanceTo(clAtom.position);
+    const steps = Math.max(3, Math.ceil(distance / (bridgeRadius * 0.72)));
+    const bridgeStrength = Math.pow(bridgeRadius / FIELD_SIZE, 2) * (pesSurface.isolation + subtract);
+    tempBondColor.set(PES_BALLS.Cl.color);
+    for (let index = 1; index < steps; index += 1) {
+      const t = index / steps;
+      tempBondPoint.lerpVectors(cAtom.position, clAtom.position, t);
+      const x = THREE.MathUtils.clamp(tempBondPoint.x / FIELD_SIZE + 0.5, 0.03, 0.97);
+      const y = THREE.MathUtils.clamp(tempBondPoint.y / FIELD_SIZE + 0.5, 0.03, 0.97);
+      const z = THREE.MathUtils.clamp(tempBondPoint.z / FIELD_SIZE + 0.5, 0.03, 0.97);
+      tempColor.set(PES_BALLS.C.color).lerp(tempBondColor, t);
+      pesSurface.addBall(x, y, z, bridgeStrength, subtract, tempColor);
+    }
   }
   pesSurface.update();
 }
