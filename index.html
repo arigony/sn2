@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f0e8">
+  <meta name="description" content="Reação SN2 animada em 3D e realidade aumentada, com inversão de Walden e superfície PES interativa.">
+  <meta property="og:title" content="SN2 AR — reação 3D interativa">
+  <meta property="og:description" content="Explore a reação Br⁻ + CH₃Cl → CH₃Br + Cl⁻ em 3D.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://arigony.github.io/sn2/">
+  <meta property="og:image" content="https://arigony.github.io/sn2/og.png">
+  <title>SN2 AR — reação 3D interativa</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main id="app">
+    <video id="cameraVideo" autoplay muted playsinline aria-hidden="true"></video>
+    <canvas id="scene" aria-label="Modelo tridimensional animado da reação SN2"></canvas>
+
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="SN2 AR — início">
+        <span class="brand-mark">SN2</span>
+        <span>
+          <strong>Reação em 3D</strong>
+          <small>Inversão de Walden</small>
+        </span>
+      </a>
+      <nav class="mode-switch" aria-label="Modo de visualização">
+        <button id="galleryMode" class="mode-button active" type="button">Galeria 3D</button>
+        <button id="arMode" class="mode-button" type="button">Usar câmera</button>
+        <button id="cameraFlip" class="mode-button camera-only" type="button">Trocar câmera</button>
+      </nav>
+    </header>
+
+    <section class="reaction-card" aria-live="polite">
+      <p class="eyebrow">Mecanismo concertado</p>
+      <h1>Br⁻ + CH₃Cl <span>→</span> CH₃Br + Cl⁻</h1>
+      <div class="phase-row">
+        <span id="phaseDot" class="phase-dot"></span>
+        <strong id="phaseLabel">Carregando a reação...</strong>
+        <span id="frameLabel">quadro —</span>
+      </div>
+    </section>
+
+    <aside class="legend" aria-label="Legenda dos átomos">
+      <strong>Átomos</strong>
+      <span><i style="--atom:#758331"></i>C</span>
+      <span><i style="--atom:#4f91ed"></i>H</span>
+      <span><i style="--atom:#de5555"></i>Cl</span>
+      <span><i style="--atom:#93233a"></i>Br</span>
+      <span class="surface-key"><i></i>Superfície PES</span>
+    </aside>
+
+    <section class="control-panel" aria-label="Controles da animação">
+      <div class="transport">
+        <button id="playPause" class="primary-control" type="button" disabled>Pausar</button>
+        <button id="restart" class="secondary-control" type="button" disabled>Reiniciar</button>
+        <label class="timeline-label" for="timeline">Linha do tempo</label>
+        <input id="timeline" type="range" min="0" max="1000" value="0" disabled>
+        <span id="timeLabel" class="time-label">0:00 / 0:20</span>
+      </div>
+      <div class="options">
+        <label for="speed">Velocidade</label>
+        <select id="speed" disabled>
+          <option value="0.5">0,5×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.5">1,5×</option>
+          <option value="2">2×</option>
+        </select>
+        <label class="toggle">
+          <input id="pesToggle" type="checkbox" checked>
+          <span>Mostrar PES</span>
+        </label>
+        <a href="assets/SN2_PES_animation_HQ.glb" download>Baixar GLB</a>
+        <a href="assets/SN2_PES_animation_HQ.fbx" download>Baixar FBX</a>
+      </div>
+    </section>
+
+    <p id="interactionHint" class="interaction-hint">Arraste para girar · use a roda ou pinça para aproximar</p>
+    <div id="arNotice" class="ar-notice hidden">Câmera ativa. Posicione o modelo no ambiente e use o toque para girar e ampliar.</div>
+
+    <div id="loading" class="loading" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <strong>Carregando o GLB original</strong>
+      <span id="loadingDetail">Preparando 615 quadros de animação...</span>
+    </div>
+    <div id="toast" class="toast hidden" role="status"></div>
+  </main>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
