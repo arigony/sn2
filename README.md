@@ -2,6 +2,8 @@
 
 Visualização tridimensional da reação **Br⁻ + CH₃Cl → CH₃Br + Cl⁻**, com ataque traseiro, estado de transição e inversão de Walden.
 
+No modo de c&acirc;mera, o MediaPipe reconhece uma m&atilde;o em tempo real: abrir a m&atilde;o aumenta o modelo, fechar diminui e mover/inclinar a m&atilde;o orienta a rea&ccedil;&atilde;o. Arraste e pin&ccedil;a continuam dispon&iacute;veis como alternativa.
+
 ## Página
 
 Depois de ativar o GitHub Pages para a branch `main`, a aplicação fica disponível em:
@@ -22,3 +24,5 @@ Sirva a pasta por HTTP/HTTPS. O acesso à câmera exige HTTPS (ou `localhost`).
 ## Créditos técnicos
 
 Blender 4.5 LTS, glTF 2.0, Three.js e Marching Cubes.
+
+Refer&ecirc;ncia visual e cient&iacute;fica: [tutorial “Simple SN2 reaction” do EasyHybrid](https://sites.google.com/view/easyhybrid/tutorials/simple_sn2_reaction_new?authuser=0). A superf&iacute;cie PES da p&aacute;gina &eacute; uma representa&ccedil;&atilde;o interativa derivada da anima&ccedil;&atilde;o, n&atilde;o um c&aacute;lculo qu&acirc;ntico executado no navegador.

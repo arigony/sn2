@@ -2,12 +2,14 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MarchingCubes } from "three/addons/objects/MarchingCubes.js";
+import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/vision_bundle.mjs";
 
 const MODEL_URL = "assets/SN2_PES_animation_HQ.glb";
 const SOURCE_FRAMES = 615;
 const SOURCE_FPS = 30;
 const FIELD_SIZE = 12.4;
 const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 760;
+const HAND_DETECT_INTERVAL_MS = IS_MOBILE ? 120 : 90;
 
 const ui = {
   canvas: document.getElementById("scene"),
@@ -28,6 +30,7 @@ const ui = {
   frameLabel: document.getElementById("frameLabel"),
   hint: document.getElementById("interactionHint"),
   arNotice: document.getElementById("arNotice"),
+  handStatus: document.getElementById("handStatus"),
   toast: document.getElementById("toast")
 };
 
@@ -89,12 +92,25 @@ let isScrubbing = false;
 let speed = 1;
 let isAR = false;
 let stream = null;
-let facingMode = "environment";
+let facingMode = "user";
 let toastTimer = null;
 let surfaceFrame = 0;
+let handLandmarker = null;
+let handTrackerPromise = null;
+let handDetectTimer = null;
+let lastVideoTime = -1;
+let handDetected = false;
+let handSeenAt = 0;
+let presentationScale = 1;
+let gestureScale = 1;
+let gestureScaleTarget = 1;
 
 const clock = new THREE.Clock();
 const tempColor = new THREE.Color();
+const directorQuaternion = new THREE.Quaternion();
+const gestureQuaternion = new THREE.Quaternion();
+const gestureQuaternionTarget = new THREE.Quaternion();
+const gestureEuler = new THREE.Euler();
 
 const PES_BALLS = {
   C: { radius: 0.43 * 1.85, color: "#8b9d38" },
@@ -110,6 +126,13 @@ function showToast(message) {
   ui.toast.textContent = message;
   ui.toast.classList.remove("hidden");
   toastTimer = setTimeout(() => ui.toast.classList.add("hidden"), 3600);
+}
+
+function setHandStatus(message, detected = false) {
+  if (!ui.handStatus) return;
+  ui.handStatus.textContent = message;
+  ui.handStatus.classList.remove("hidden");
+  ui.handStatus.classList.toggle("detected", detected);
 }
 
 function setControlsEnabled(enabled) {
@@ -205,8 +228,8 @@ function fitPresentation() {
   if (!gltfScene) return;
   const aspect = Math.max(window.innerWidth / window.innerHeight, 0.35);
   const targetWidth = aspect < 0.72 ? 4.0 : 6.4;
-  const scale = targetWidth / sourceWidth;
-  reactionGroup.scale.setScalar(scale);
+  presentationScale = targetWidth / sourceWidth;
+  reactionGroup.scale.setScalar(presentationScale * gestureScale);
   reactionGroup.position.set(0, aspect < 0.72 ? 0.1 : 0.0, 0);
   const horizontalFov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * aspect);
   const framing = aspect < 0.72 ? 0.53 : 0.56;
@@ -333,7 +356,126 @@ ui.pesToggle.addEventListener("change", () => {
   if (pesSurface.visible) updatePESSurface(true);
 });
 
+async function buildHandTracker() {
+  if (handLandmarker) return handLandmarker;
+  if (handTrackerPromise) return handTrackerPromise;
+
+  handTrackerPromise = (async () => {
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
+    );
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+        delegate: "CPU"
+      },
+      runningMode: "VIDEO",
+      numHands: 1,
+      minHandDetectionConfidence: 0.35,
+      minHandPresenceConfidence: 0.35,
+      minTrackingConfidence: 0.35
+    });
+    return handLandmarker;
+  })();
+
+  try {
+    return await handTrackerPromise;
+  } catch (error) {
+    handTrackerPromise = null;
+    throw error;
+  }
+}
+
+function handOpenness(hand) {
+  const wrist = hand[0];
+  const middleBase = hand[9];
+  const palmSize = Math.max(0.001, Math.hypot(middleBase.x - wrist.x, middleBase.y - wrist.y));
+  const fingerTips = [8, 12, 16, 20];
+  const meanReach = fingerTips.reduce((sum, index) => {
+    const tip = hand[index];
+    return sum + Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+  }, 0) / fingerTips.length;
+  return THREE.MathUtils.clamp((meanReach / palmSize - 1.08) / 1.18, 0, 1);
+}
+
+function updateGestureFromHand(hand) {
+  const wrist = hand[0];
+  const indexBase = hand[5];
+  const middleBase = hand[9];
+  const pinkyBase = hand[17];
+  const centerX = (wrist.x + indexBase.x + middleBase.x + pinkyBase.x) / 4;
+  const centerY = (wrist.y + indexBase.y + middleBase.y + pinkyBase.y) / 4;
+  const displayX = facingMode === "user" ? 1 - centerX : centerX;
+  const acrossX = indexBase.x - pinkyBase.x;
+  const acrossY = indexBase.y - pinkyBase.y;
+  const angleZ = Math.atan2(acrossY, acrossX);
+  const angleY = (0.5 - displayX) * Math.PI * (IS_MOBILE ? 1.15 : 1.45);
+  const angleX = (centerY - 0.5) * Math.PI * (IS_MOBILE ? 0.65 : 0.85);
+
+  gestureEuler.set(angleX, angleY, facingMode === "user" ? angleZ : -angleZ);
+  gestureQuaternionTarget.setFromEuler(gestureEuler);
+
+  const openness = handOpenness(hand);
+  gestureScaleTarget = THREE.MathUtils.lerp(0.68, 1.45, openness);
+  handSeenAt = performance.now();
+  handDetected = true;
+
+  const state = openness > 0.66
+    ? "aberta \u00b7 aumentando"
+    : openness < 0.34
+      ? "fechada \u00b7 diminuindo"
+      : "detectada \u00b7 ajuste continuo";
+  setHandStatus(`M\u00e3o ${state}`, true);
+}
+
+function detectHandStep() {
+  if (!isAR || !handLandmarker || ui.video.readyState < 2 || ui.video.currentTime === lastVideoTime) return;
+  lastVideoTime = ui.video.currentTime;
+  try {
+    const result = handLandmarker.detectForVideo(ui.video, performance.now());
+    const hand = result?.landmarks?.[0];
+    if (hand) {
+      updateGestureFromHand(hand);
+      return;
+    }
+    handDetected = false;
+    if (performance.now() - handSeenAt > 800) {
+      setHandStatus("Mostre a m\u00e3o: abra para aumentar e feche para diminuir", false);
+    }
+  } catch (error) {
+    console.warn("Falha temporaria no rastreamento da mao.", error);
+    setHandStatus("Rastreamento temporariamente indisponivel \u00b7 use o toque", false);
+  }
+}
+
+async function startHandTracking() {
+  clearInterval(handDetectTimer);
+  handDetectTimer = null;
+  lastVideoTime = -1;
+  setHandStatus("Inicializando reconhecimento da m\u00e3o\u2026", false);
+  try {
+    await buildHandTracker();
+    if (!isAR) return;
+    handDetectTimer = setInterval(detectHandStep, HAND_DETECT_INTERVAL_MS);
+    setHandStatus("Mostre a m\u00e3o: abra para aumentar e feche para diminuir", false);
+  } catch (error) {
+    console.error(error);
+    setHandStatus("Reconhecimento indisponivel \u00b7 use arraste e pin\u00e7a", false);
+  }
+}
+
+function stopHandTracking() {
+  clearInterval(handDetectTimer);
+  handDetectTimer = null;
+  lastVideoTime = -1;
+  handDetected = false;
+  gestureScaleTarget = 1;
+  gestureQuaternionTarget.identity();
+  ui.handStatus?.classList.add("hidden");
+}
+
 async function stopAR() {
+  stopHandTracking();
   if (stream) stream.getTracks().forEach(track => track.stop());
   stream = null;
   ui.video.srcObject = null;
@@ -353,6 +495,7 @@ async function startAR() {
     showToast("A câmera não está disponível neste navegador.");
     return;
   }
+  stopHandTracking();
   try {
     if (stream) stream.getTracks().forEach(track => track.stop());
     stream = await navigator.mediaDevices.getUserMedia({
@@ -371,7 +514,11 @@ async function startAR() {
     scene.fog = null;
     renderer.setClearColor(0x000000, 0);
     isAR = true;
-    showToast("Câmera ativa: arraste para girar e use a pinça para ampliar.");
+    gestureScaleTarget = 1;
+    gestureQuaternionTarget.identity();
+    ui.arNotice.textContent = "Abra a m\u00e3o para aumentar, feche para diminuir e mova a m\u00e3o para girar. O toque continua disponivel.";
+    startHandTracking();
+    showToast("Camera ativa: abra/feche a m\u00e3o para ampliar e mova-a para girar.");
   } catch (error) {
     console.error(error);
     showToast("Permita o acesso à câmera para usar o modo AR.");
@@ -396,8 +543,12 @@ function animate() {
   if (directorPivot && reactionGroup) {
     // Equivalent relative view to the Blender orbit camera while retaining
     // free OrbitControls for the visitor.
-    reactionGroup.quaternion.copy(directorPivot.quaternion).invert();
+    directorQuaternion.copy(directorPivot.quaternion).invert();
+    gestureQuaternion.slerp(gestureQuaternionTarget, handDetected ? 0.13 : 0.08);
+    reactionGroup.quaternion.copy(directorQuaternion).multiply(gestureQuaternion);
   }
+  gestureScale = THREE.MathUtils.lerp(gestureScale, gestureScaleTarget, handDetected ? 0.13 : 0.08);
+  reactionGroup.scale.setScalar(presentationScale * gestureScale);
   if (mixer && isPlaying) updatePESSurface();
   updateInterface();
   controls.update();
@@ -413,6 +564,7 @@ window.addEventListener("resize", () => {
 });
 
 window.addEventListener("pagehide", () => {
+  stopHandTracking();
   if (stream) stream.getTracks().forEach(track => track.stop());
 });
 
